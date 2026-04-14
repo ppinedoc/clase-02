@@ -60,6 +60,16 @@ class AtencionResponse(BaseModel):
     servicio_id: int
     fecha_servicio: str
 
+class ServicioDetalle(BaseModel):
+    nombre_servicio: str
+    costo: float
+
+class ReporteDueño(BaseModel):
+    nombre_dueño: str
+    mascotas: List[str]
+    servicios: List[ServicioDetalle]
+    costo_total: float
+
 # Inicializar base de datos al arrancar
 init_db()
 
@@ -167,6 +177,54 @@ def listar_atenciones():
             )
             for a in atenciones
         ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/servicios-por-dueño", response_model=List[ReporteDueño])
+def listar_servicios_por_dueño():
+    """Lista los servicios por dueño con el costo total"""
+    try:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        # Obtener todos los dueños únicos
+        cursor.execute("SELECT DISTINCT nombre_dueño FROM atenciones ORDER BY nombre_dueño")
+        dueños = cursor.fetchall()
+        
+        reporte = []
+        
+        for (nombre_dueño,) in dueños:
+            # Obtener mascotas del dueño
+            cursor.execute(
+                "SELECT DISTINCT mascota FROM atenciones WHERE nombre_dueño = ? ORDER BY mascota",
+                (nombre_dueño,)
+            )
+            mascotas = [m[0] for m in cursor.fetchall()]
+            
+            # Obtener servicios y costos del dueño
+            cursor.execute("""
+                SELECT s.nombre, s.costo
+                FROM atenciones a
+                JOIN servicios s ON a.servicio_id = s.id
+                WHERE a.nombre_dueño = ?
+                ORDER BY s.nombre
+            """, (nombre_dueño,))
+            
+            servicios_result = cursor.fetchall()
+            servicios = [ServicioDetalle(nombre_servicio=s[0], costo=s[1]) for s in servicios_result]
+            
+            # Calcular costo total
+            costo_total = sum(s.costo for s in servicios)
+            
+            reporte.append(ReporteDueño(
+                nombre_dueño=nombre_dueño,
+                mascotas=mascotas,
+                servicios=servicios,
+                costo_total=costo_total
+            ))
+        
+        conn.close()
+        return reporte
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
